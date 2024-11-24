@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Comprehensive Cyborg Vulnerability Scan Report with visual charts and detailed insights.">
+    <title>Cyborg Vulnerability Scan Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* General Styling */
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            background-color: #1c1c1c;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 0;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            padding: 20px 0;
+            margin: 0;
+            background: linear-gradient(to right, #29b6f6, #0288d1);
+            border-bottom: 4px solid #0288d1;
+            font-size: 2em;
+        }
+
+        h2 {
+            color: #ffffff;
+            text-align: center;
+            margin: 30px 0 10px;
+            font-size: 1.6em;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+
+        /* Chart Section */
+        .chart-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 30px 0;
+            padding: 15px;
+            background: #252525;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+            width: 60%; /* Reduced width */
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        canvas {
+            max-width: 100%;
+        }
+
+        /* Table Styling */
+        table {
+            width: 100%;
+            margin: 20px 0;
+            border-collapse: collapse;
+            background-color: #2a2a2a;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th,
+        td {
+            padding: 15px;
+            text-align: left;
+            font-size: 1em;
+        }
+
+        th {
+            background: linear-gradient(to right, #29b6f6, #0288d1);
+            color: #ffffff;
+            text-transform: uppercase;
+        }
+
+        tr:nth-child(even) {
+            background-color: #333;
+        }
+
+        tr:hover {
+            background-color: #444;
+            cursor: pointer;
+        }
+
+        .severity {
+            font-weight: bold;
+            text-transform: capitalize;
+        }
+
+        .severity.critical {
+            color: #f44336;
+        }
+
+        .severity.high {
+            color: #ff9800;
+        }
+
+        .severity.medium {
+            color: #ffc107;
+        }
+
+        .severity.low {
+            color: #4caf50;
+        }
+
+        pre {
+            background-color: #333;
+            color: #e0e0e0;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+
+        /* Tooltip Styling */
+        tr:hover td {
+            position: relative;
+        }
+
+        tr:hover td::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 0;
+            bottom: 110%;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px;
+            border-radius: 5px;
+            white-space: nowrap;
+            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.3);
+            font-size: 0.8em;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            body {
+                font-size: 14px;
+            }
+
+            th,
+            td {
+                font-size: 12px;
+            }
+
+            h1 {
+                font-size: 1.8em;
+            }
+
+            h2 {
+                font-size: 1.4em;
+            }
+
+            .chart-container {
+                width: 80%; /* Smaller chart for mobile */
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Cyborg Vulnerability Scan Report</h1>
+    <div class="container">
+        <!-- Chart Section -->
+        <div class="chart-container">
+            <canvas id="severityChart" width="300" height="300"></canvas>
+        </div>
+
+        <!-- Detailed Results Section -->
+        <h2>Detailed Vulnerabilities</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Line</th>
+                    <th>Severity</th>
+                    <th>Description</th>
+                    <th>Code</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Rows dynamically inserted -->
+                {results_rows}
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Generate Severity Chart
+        const ctx = document.getElementById('severityChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Critical', 'High', 'Medium', 'Low'],
+                datasets: [{
+                    data: [30, 50, 100, 200], // Replace with dynamic counts
+                    backgroundColor: ['#f44336', '#ff9800', '#ffc107', '#4caf50'],
+                    hoverOffset: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            color: '#e0e0e0'
+                        }
+                    }
+                },
+                layout: {
+                    padding: 10
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>
