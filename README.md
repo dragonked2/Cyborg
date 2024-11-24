@@ -78,6 +78,42 @@ Future versions will support CLI commands for enhanced automation.
 
 ---
 
+### 💡 How to Create an EXE File for Easy Usage
+
+You can convert the Cyborg Vulnerability Scanner into an executable file using **PyInstaller**, allowing you to run the tool without needing Python installed.
+
+#### 1. **Install PyInstaller**
+Ensure you have PyInstaller installed. Run the following command:
+
+```bash
+pip install pyinstaller
+```
+
+#### 2. **Create the EXE File**
+Use PyInstaller to compile the Python script into a standalone executable:
+
+```bash
+python -m PyInstaller --onefile --noconsole ve.py
+```
+
+- **`--onefile`**: Bundles everything into a single executable file.
+- **`--noconsole`**: Hides the console window (useful for GUI applications).
+
+#### 3. **Run the EXE**
+Navigate to the `dist` folder where the EXE file is generated, and double-click `ve.exe` to launch the tool.
+
+```plaintext
+dist/
+└── ve.exe
+```
+
+Enjoy a seamless experience with your standalone vulnerability scanner!
+
+--- 
+
+This version ensures clarity and highlights the simplicity of the process, making it easy for users to follow.
+---
+
 ## 🛡️ Detection Rules
 
 Cyborg Scanner uses a comprehensive set of detection rules to find vulnerabilities, including:
