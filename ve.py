@@ -1,8 +1,10 @@
 import os
 import re
 import logging
+from tqdm import tqdm
 import datetime
 import threading
+import tkinter as tk
 from tkinter import filedialog, messagebox, Tk, ttk
 from ttkbootstrap import Style
 from concurrent.futures import ThreadPoolExecutor
@@ -14,56 +16,255 @@ logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s -
 
 # Default Detection Rules
 DETECTION_RULES = [
+    # Sensitive Information Leaks
+    {
+        "pattern": r"(?i)(api_key|aws_secret_access_key|private_key|password|secret|token|oauth_token|access_token|ssh_passphrase)\s*=\s*[\"']([^\"']+)[\"']",
+        "severity": "Critical",
+        "description": "Hardcoded sensitive information detected. Store in environment variables or a secure vault."
+    },
+    {
+        "pattern": r"(?i)(db_name|db_user|db_pass|database|username|password)\s*=\s*[\"']([^\"']+)[\"']",
+        "severity": "Critical",
+        "description": "Hardcoded database credentials detected. Avoid embedding credentials in code."
+    },
+    {
+        "pattern": r"(?i)(BEGIN|END)\s*(RSA|DSA|EC|OPENSSH|PGP)\s*PRIVATE\s*KEY",
+        "severity": "Critical",
+        "description": "Private key detected in source files. Use secure key management practices."
+    },
+    {
+        "pattern": r"(?i)(aws_access_key_id|aws_secret_access_key|az_subscription_key|gcp_private_key)\s*=\s*[\"']([^\"']+)[\"']",
+        "severity": "Critical",
+        "description": "Cloud provider credentials detected. Use secure credential management practices."
+    },
+
     # Input Handling Vulnerabilities
-    {"pattern": r"\$_GET\[", "severity": "Critical", "description": "Unsanitized input from $_GET detected. This can lead to injection attacks, such as SQL injection or XSS."},
-    {"pattern": r"\$_POST\[", "severity": "Critical", "description": "Unsanitized input from $_POST detected. Validate and sanitize all incoming data to avoid injection risks."},
-    {"pattern": r"\$_REQUEST\[", "severity": "Critical", "description": "Potential injection risk via $_REQUEST. Avoid using $_REQUEST; prefer $_GET or $_POST with proper sanitization."},
-    {"pattern": r"\$_COOKIE\[", "severity": "High", "description": "Insecure handling of $_COOKIE data. Ensure cookies are validated and sanitized to prevent injection attacks."},
-    {"pattern": r"\$_SERVER\[", "severity": "High", "description": "Unvalidated use of $_SERVER variables. These can be manipulated to disclose sensitive information or inject malicious data."},
+    {
+        "pattern": r"(\$_GET|\$_POST|\$_REQUEST|\$_COOKIE|\$_SERVER)\[.*\]",
+        "severity": "Critical",
+        "description": "Unsanitized input detected. Validate and sanitize all external input to prevent injection attacks."
+    },
+    {
+        "pattern": r"htmlspecialchars\s*\(",
+        "severity": "High",
+        "description": "Ensure correct use of htmlspecialchars to prevent XSS attacks. Check encoding context."
+    },
+    {
+        "pattern": r"strip_tags\s*\(",
+        "severity": "Medium",
+        "description": "Ensure proper use of strip_tags to prevent XSS. Consider using a more robust sanitization library."
+    },
+    {
+        "pattern": r"(preg_replace|ereg_replace|split|ereg)\s*\(.*?['\"].*e['\"].*?\)",
+        "severity": "Critical",
+        "description": "Insecure regular expression detected with 'e' modifier. This can lead to code execution."
+    },
+    {
+        "pattern": r"(?i)(urldecode|rawurldecode)\s*\(",
+        "severity": "High",
+        "description": "Improper use of URL decoding can lead to injection attacks. Sanitize and validate inputs."
+    },
 
     # Code Execution Vulnerabilities
-    {"pattern": r"eval\s*\(", "severity": "Critical", "description": "Use of eval detected. This function executes arbitrary PHP code and poses a significant security risk."},
-    {"pattern": r"exec\s*\(", "severity": "Critical", "description": "Use of exec detected. This function can execute shell commands and must be avoided or heavily restricted."},
-    {"pattern": r"system\s*\(", "severity": "Critical", "description": "Use of system detected. This function executes shell commands, which can compromise system security."},
-    {"pattern": r"shell_exec\s*\(", "severity": "Critical", "description": "Use of shell_exec detected. Avoid this function as it allows arbitrary shell command execution."},
-    {"pattern": r"popen\s*\(", "severity": "Critical", "description": "Use of popen detected. This can lead to shell command execution and should be avoided unless absolutely necessary."},
-    {"pattern": r"passthru\s*\(", "severity": "Critical", "description": "Use of passthru detected. It allows execution of shell commands and must be avoided."},
+    {
+        "pattern": r"(eval|exec|system|shell_exec|popen|passthru|proc_open|pcntl_exec|os.system|subprocess\.run|subprocess\.call)\s*\(",
+        "severity": "Critical",
+        "description": "Detected unsafe code execution function. Avoid using unless necessary and validate all inputs."
+    },
+    {
+        "pattern": r"assert\s*\(",
+        "severity": "Critical",
+        "description": "Use of assert detected, which can lead to arbitrary code execution."
+    },
+    {
+        "pattern": r"create_function\s*\(",
+        "severity": "High",
+        "description": "Detected use of create_function. Replace with anonymous functions for better security."
+    },
 
     # File Handling Vulnerabilities
-    {"pattern": r"file_put_contents\s*\(", "severity": "High", "description": "Potentially risky file write operation detected. Validate file paths and permissions."},
-    {"pattern": r"file_get_contents\s*\(", "severity": "High", "description": "Potentially unsafe file read operation detected. Ensure input is sanitized to prevent path traversal attacks."},
-    {"pattern": r"fopen\s*\(", "severity": "High", "description": "Use of fopen detected. Validate file paths and permissions to prevent unauthorized access."},
-    {"pattern": r"unlink\s*\(", "severity": "High", "description": "File deletion detected via unlink. Validate inputs to avoid arbitrary file deletion."},
-    {"pattern": r"chmod\s*\(", "severity": "Medium", "description": "Changing file permissions detected. Ensure proper permission configurations to avoid privilege escalation."},
+    {
+        "pattern": r"(file_put_contents|file_get_contents|fopen|unlink|chmod|chown|readfile|scandir|opendir|readdir|mkdir|rmdir)\s*\(",
+        "severity": "High",
+        "description": "Potentially unsafe file operations detected. Validate file paths and permissions."
+    },
+    {
+        "pattern": r"(move_uploaded_file|copy|rename)\s*\(",
+        "severity": "Critical",
+        "description": "Detected potentially unsafe file handling. Check paths and ensure secure file storage."
+    },
+    {
+        "pattern": r"tmpfile\s*\(",
+        "severity": "Medium",
+        "description": "Ensure secure handling of temporary files to prevent unauthorized access."
+    },
 
     # Serialization and Deserialization
-    {"pattern": r"serialize\s*\(", "severity": "High", "description": "Serialization detected. Ensure objects are serialized securely to prevent tampering or deserialization attacks."},
-    {"pattern": r"unserialize\s*\(", "severity": "Critical", "description": "Insecure deserialization detected. This can lead to remote code execution or arbitrary object injection."},
+    {
+        "pattern": r"(serialize|unserialize|json_decode|yaml_parse|pickle\.loads|pickle\.load|unmarshal)\s*\(",
+        "severity": "Critical",
+        "description": "Detected serialization/deserialization operation. Ensure data is validated to prevent injection or RCE."
+    },
 
     # Cryptographic Issues
-    {"pattern": r"md5\s*\(", "severity": "High", "description": "Use of weak MD5 hashing algorithm detected. Replace with a secure algorithm like SHA-256."},
-    {"pattern": r"sha1\s*\(", "severity": "High", "description": "Use of weak SHA1 hashing algorithm detected. Replace with a secure algorithm like SHA-256."},
-    {"pattern": r"base64_decode\s*\(", "severity": "Medium", "description": "Use of base64_decode detected. This can be used to obfuscate malicious code."},
+    {
+        "pattern": r"(md5|sha1|crypt|hash\s*\(['\"]md5['\"]|hash\s*\(['\"]sha1['\"])\s*\(",
+        "severity": "High",
+        "description": "Detected weak hashing algorithm. Replace with stronger algorithms such as bcrypt, Argon2, or SHA-256."
+    },
+    {
+        "pattern": r"(openssl_encrypt|openssl_decrypt|mcrypt_encrypt|mcrypt_decrypt)\s*\(",
+        "severity": "High",
+        "description": "Detected cryptographic operations. Ensure strong algorithms and configurations are used."
+    },
+    {
+        "pattern": r"(rand|mt_rand|srand)\s*\(",
+        "severity": "High",
+        "description": "Insecure random number generation detected. Use cryptographically secure alternatives like random_bytes or SecureRandom."
+    },
 
     # Database Vulnerabilities
-    {"pattern": r"mysql_query\s*\(", "severity": "Critical", "description": "Use of deprecated mysql_query detected. Use parameterized queries or prepared statements instead."},
-    {"pattern": r"mysqli_query\s*\(", "severity": "High", "description": "Ensure mysqli_query inputs are sanitized and validated to prevent SQL injection."},
-    {"pattern": r"pg_query\s*\(", "severity": "High", "description": "Ensure pg_query inputs are sanitized and validated to prevent SQL injection in PostgreSQL."},
-    {"pattern": r"sqlite_query\s*\(", "severity": "High", "description": "Ensure sqlite_query inputs are sanitized and validated to prevent SQL injection in SQLite."},
+    {
+        "pattern": r"(mysql_query|mysqli_query|pg_query|sqlite_query|oci_parse|db2_exec)\s*\(",
+        "severity": "Critical",
+        "description": "Detected direct SQL queries. Use parameterized queries or prepared statements to prevent SQL injection."
+    },
+    {
+        "pattern": r"(?i)select\s+\*\s+from",
+        "severity": "High",
+        "description": "Wildcard detected in SQL queries. Avoid selecting all columns unnecessarily."
+    },
 
-    # XSS and Output Escaping
-    {"pattern": r"echo\s+\$_(GET|POST|REQUEST|COOKIE)\[", "severity": "Critical", "description": "Unescaped output detected from user input. This can lead to cross-site scripting (XSS)."},
-    {"pattern": r"print\s+\$_(GET|POST|REQUEST|COOKIE)\[", "severity": "Critical", "description": "Unescaped output detected from user input. This can lead to cross-site scripting (XSS)."},
+    # Debugging Functions (Advanced)
+    {
+        "pattern": r"(var_dump|print_r|echo|die|exit|debug_backtrace|debug_print_backtrace|console\.log|alert|debugger|printf|sprintf)\s*\(",
+        "severity": "Medium",
+        "description": "Detected debugging or development functions. Remove these before deploying to production."
+    },
 
     # Security Misconfigurations
-    {"pattern": r"ini_set\s*\(.*'display_errors',\s*'1'\)", "severity": "High", "description": "Error display enabled in a production environment. Disable to prevent information leakage."},
-    {"pattern": r"error_reporting\s*\(", "severity": "Medium", "description": "Check error reporting configuration to avoid excessive error information exposure."}
+    {
+        "pattern": r"ini_set\s*\(.*'display_errors',\s*'1'\)",
+        "severity": "High",
+        "description": "Detected enabled error display. Disable this in production environments."
+    },
+    {
+        "pattern": r"(?i)allow_url_(include|fopen)\s*=\s*['\"]1['\"]",
+        "severity": "Critical",
+        "description": "Remote file inclusion detected. Disable this setting in production."
+    },
+
+    # Logging Sensitive Data
+    {
+        "pattern": r"(error_log|log_message|console\.log|logging\.(debug|info|warning|error))\s*\(.*['\"](password|key|secret)['\"].*\)",
+        "severity": "Critical",
+        "description": "Sensitive data detected in logging functions. Avoid logging sensitive information."
+    },
+
+    # Authentication and Session Management
+    {
+        "pattern": r"session_start\s*\(",
+        "severity": "High",
+        "description": "Detected session handling. Ensure secure session management practices, including HTTPS."
+    },
+    {
+        "pattern": r"(?i)(csrf_token|xsrf_token|session_id|jwt)\s*=\s*[\"'].*[\"']",
+        "severity": "High",
+        "description": "Potential exposure of CSRF/XSRF/session tokens detected. Protect sensitive tokens."
+    },
+    {
+        "pattern": r"(?i)setcookie\s*\(",
+        "severity": "High",
+        "description": "Detected cookie handling. Ensure secure and HttpOnly flags are set."
+    },
+
+    # Access Control Issues
+    {
+        "pattern": r"(?i)(admin|superuser|root)_access\s*=\s*['\"]1['\"]",
+        "severity": "Critical",
+        "description": "Hardcoded privileged access detected. Avoid hardcoding access control logic."
+    },
+
+    # Insecure Practices
+    {
+        "pattern": r"(?i)base64_(encode|decode)\s*\(",
+        "severity": "Medium",
+        "description": "Base64 detected. Avoid using Base64 for sensitive data storage or obfuscation."
+    },
+    {
+        "pattern": r"(?i)(wget|curl|urllib\.request)\s*\(['\"]http",
+        "severity": "High",
+        "description": "Detected unvalidated URL handling. Sanitize and validate URLs."
+    },
+
+    # Other Vulnerabilities
+    {
+        "pattern": r"(?i)(os.system|subprocess.run|subprocess.call)\s*\(",
+        "severity": "Critical",
+        "description": "Detected system command execution. Validate inputs to prevent command injection."
+    },
+    {
+        "pattern": r"(fs.writeFile|fs.readFile|fs.appendFile)\s*\(",
+        "severity": "High",
+        "description": "Detected insecure file operations in JavaScript/Node.js. Validate file paths and inputs."
+    }
+]
+
+
+
+
+
+
+
+TRUSTED_PATTERNS = [
+    # HTML and SQL escaping functions
+    re.compile(r"htmlspecialchars\s*\("),
+    re.compile(r"addslashes\s*\("),
+    re.compile(r"htmlentities\s*\("),
+    re.compile(r"strip_tags\s*\("),
+    re.compile(r"mysqli_real_escape_string\s*\("),
+    re.compile(r"pg_escape_string\s*\("),
+    re.compile(r"sqlite3_escape_string\s*\("),
+    re.compile(r"prepare\s*\("),
+
+    # JavaScript-safe functions
+    re.compile(r"\bdecodeURIComponent\s*\("),
+    re.compile(r"\bencodeURIComponent\s*\("),
+    re.compile(r"\bJSON\.stringify\s*\("),
+    re.compile(r"\bJSON\.parse\s*\("),
+
+    # Validation and Sanitization
+    re.compile(r"filter_var\s*\(.*?,\s*FILTER_SANITIZE_"),
+    re.compile(r"preg_match\s*\("),
+    re.compile(r"ctype_\w+\s*\("),
+    re.compile(r"validate_input\s*\("),
+    re.compile(r"sanitize_input\s*\("),
+
+    # Encoding and Decoding functions
+    re.compile(r"base64_encode\s*\("),
+    re.compile(r"base64_decode\s*\("),
+    re.compile(r"hex2bin\s*\("),
+    re.compile(r"bin2hex\s*\("),
+
+    # Security Libraries or Wrappers
+    re.compile(r"esc_attr\s*\("),
+    re.compile(r"esc_html\s*\("),
+    re.compile(r"wp_kses\s*\("),
+    re.compile(r"secure_query\s*\("),
+    re.compile(r"safe_execute\s*\("),
+]
+
+# Define trusted file paths or directories to exclude
+TRUSTED_PATHS = [
+    "vendor/",        # Common dependency directories
+    "node_modules/",  # JavaScript dependencies
+    "PHPMailer",      # Known safe libraries
 ]
 
 
 def is_false_positive(line, pattern, file_path):
     """
-    Determine if a detected vulnerability is a false positive based on trusted patterns.
+    Determine if a detected vulnerability is a false positive based on trusted patterns or contexts.
 
     Args:
         line (str): The line of code where the vulnerability is detected.
@@ -73,77 +274,88 @@ def is_false_positive(line, pattern, file_path):
     Returns:
         bool: True if the vulnerability is considered a false positive, False otherwise.
     """
-    # Comprehensive list of trusted patterns
-    trusted_patterns = [
-        # HTML and SQL escaping functions
-        r"htmlspecialchars\s*\(",         # Escaping HTML special characters
-        r"addslashes\s*\(",               # Escaping special characters with slashes
-        r"htmlentities\s*\(",             # Convert all applicable characters to HTML entities
-        r"strip_tags\s*\(",               # Strips HTML and PHP tags from a string
-        r"mysqli_real_escape_string\s*\(", # Escaping strings for MySQL queries
-        r"pg_escape_string\s*\(",         # Escaping strings for PostgreSQL queries
-        r"sqlite3_escape_string\s*\(",    # Escaping strings for SQLite queries
-        r"prepare\s*\(",                  # SQL statement preparation
+    # Check if the file path matches a trusted path
+    for trusted_path in TRUSTED_PATHS:
+        if trusted_path.lower() in file_path.lower():
+            logging.debug(f"False positive: Trusted file path matched: {file_path}")
+            return True
 
-        # JavaScript-safe functions
-        r"\bdecodeURIComponent\s*\(",    # JavaScript URL decoding
-        r"\bencodeURIComponent\s*\(",    # JavaScript URL encoding
-        r"\bJSON\.stringify\s*\(",       # JavaScript object-to-string conversion
-        r"\bJSON\.parse\s*\(",           # JavaScript string-to-object conversion
+    # Check against precompiled trusted patterns
+    for trusted_pattern in TRUSTED_PATTERNS:
+        if trusted_pattern.search(line):
+            logging.debug(f"False positive: Trusted pattern matched in line: {line.strip()}")
+            return True
 
-        # Validation and Sanitization
-        r"filter_var\s*\(.*?,\s*FILTER_SANITIZE_",  # PHP filter functions for sanitizing inputs
-        r"preg_match\s*\(",                        # Pattern matching to validate inputs
-        r"ctype_\w+\s*\(",                         # PHP ctype functions (e.g., ctype_alpha)
-        r"validate_input\s*\(",                    # Custom validation functions
-        r"sanitize_input\s*\(",                    # Custom sanitization functions
-
-        # Encoding and Decoding functions
-        r"base64_encode\s*\(",                     # Encoding data
-        r"base64_decode\s*\(",                     # Decoding data
-        r"hex2bin\s*\(",                           # Hexadecimal to binary conversion
-        r"bin2hex\s*\(",                           # Binary to hexadecimal conversion
-
-        # Security Libraries or Wrappers
-        r"esc_attr\s*\(",                          # WordPress escaping attributes
-        r"esc_html\s*\(",                          # WordPress escaping HTML
-        r"wp_kses\s*\(",                           # WordPress content sanitization
-        r"secure_query\s*\(",                      # Hypothetical secure query wrapper
-        r"safe_execute\s*\(",                      # Hypothetical safe execution wrapper
+    # Additional heuristic: Ignore empty or placeholder variable declarations
+    placeholder_patterns = [
+        re.compile(r"=\s*[\"']?[\"']?\s*;"),  # Match empty string assignments (e.g., `= "";`)
+        re.compile(r"=\s*null\s*;?", re.IGNORECASE),  # Match null assignments
     ]
+    for placeholder_pattern in placeholder_patterns:
+        if placeholder_pattern.search(line):
+            logging.debug(f"False positive: Placeholder assignment detected in line: {line.strip()}")
+            return True
 
-    # Combine trusted patterns for matching
-    combined_pattern = "|".join(f"({trusted})" for trusted in trusted_patterns)
+    # Check if the line is part of a comment
+    if line.strip().startswith("//") or line.strip().startswith("#"):
+        logging.debug(f"False positive: Line is a comment: {line.strip()}")
+        return True
 
-    # Check if any trusted pattern matches the given line
-    is_trusted = bool(re.search(combined_pattern, line))
-
-    # Debug or log information (if needed)
-    # print(f"Line checked: {line}")
-    # print(f"Trusted pattern matched: {is_trusted}")
-
-    return is_trusted
+    # No trusted pattern matched; consider it a valid vulnerability
+    logging.debug(f"Potential vulnerability detected: {line.strip()} (Pattern: {pattern})")
+    return False
 
 
-def scan_file(file_path, progress_callback):
-    """Scan a single file for vulnerabilities."""
+def scan_file(file_path, progress_callback=None):
+    """
+    Scan a single file for vulnerabilities using advanced detection rules.
+
+    Args:
+        file_path (str): Path to the file to be scanned.
+        progress_callback (callable, optional): Function to report scan progress.
+
+    Returns:
+        list: A list of detected vulnerabilities.
+    """
     results = []
     try:
         with open(file_path, "r", encoding="utf-8") as file:
             lines = file.readlines()
-            for i, line in enumerate(lines, start=1):
-                for rule in DETECTION_RULES:
-                    if re.search(rule["pattern"], line) and not is_false_positive(line, rule["pattern"], file_path):
-                        results.append({
-                            "file": file_path,
-                            "line": i,
-                            "severity": rule["severity"],
-                            "description": rule["description"],
-                            "code": line.strip()
-                        })
-                progress_callback(int((i / len(lines)) * 100))
+
+        # Combine lines for multiline pattern matching
+        file_content = "\n".join(lines)
+
+        # Scan each detection rule
+        for rule in DETECTION_RULES:
+            matches = re.finditer(rule["pattern"], file_content, re.MULTILINE)
+            for match in matches:
+                # Get the line number from the match
+                start_pos = match.start()
+                line_number = file_content[:start_pos].count("\n") + 1
+                
+                # Avoid false positives
+                if not is_false_positive(match.group(), rule["pattern"], file_path):
+                    results.append({
+                        "file": file_path,
+                        "line": line_number,
+                        "severity": rule["severity"],
+                        "description": rule["description"],
+                        "code": match.group().strip()
+                    })
+
+        # Report progress using a smart callback or default to tqdm
+        if progress_callback:
+            progress_callback(100)
+        else:
+            tqdm.write(f"Scan complete for {file_path}")
+    
+    except FileNotFoundError:
+        logging.error(f"File not found: {file_path}")
+    except UnicodeDecodeError:
+        logging.error(f"File encoding error in {file_path}. Ensure the file is UTF-8 encoded.")
     except Exception as e:
-        logging.error(f"Error scanning file {file_path}: {e}")
+        logging.error(f"Unexpected error while scanning file {file_path}: {e}")
+
     return results
 
 def scan_directory(directory, progress_callback):
@@ -394,21 +606,101 @@ def start_scan(mode, progress_bar, root):
     threading.Thread(target=run_scan).start()
 
 def create_gui():
-    """Create and display the graphical user interface."""
-    root = Tk()
+    """
+    Create and display the graphical user interface for the Cyborg Vulnerability Scanner.
+    """
+    # Initialize the root window with ttkbootstrap styling
+    root = tk.Tk()
     style = Style("cyborg")
     root.title("Cyborg Vulnerability Scanner")
-    root.geometry("1000x700")
+    root.geometry("1000x750")
+    root.resizable(False, False)  # Fixed window size for consistent layout
 
-    ttk.Label(root, text="Cyborg Vulnerability Scanner", font=("Helvetica", 28), bootstyle="primary").pack(pady=30)
-    progress_bar = ttk.Progressbar(root, length=800, mode="determinate")
-    progress_bar.pack(pady=20)
+    # Header Section
+    header_frame = ttk.Frame(root)
+    header_frame.pack(pady=20)
+    ttk.Label(
+        header_frame,
+        text="Cyborg Vulnerability Scanner",
+        font=("Helvetica", 28),
+        bootstyle="primary-inverse"
+    ).pack()
+    ttk.Label(
+        header_frame,
+        text="Secure your code effortlessly. Detect vulnerabilities before they cause trouble.",
+        font=("Helvetica", 14),
+        bootstyle="secondary"
+    ).pack(pady=10)
 
-    ttk.Button(root, text="Scan Single File", command=lambda: start_scan("file", progress_bar, root), bootstyle="success").pack(pady=20)
-    ttk.Button(root, text="Scan Directory", command=lambda: start_scan("directory", progress_bar, root), bootstyle="primary").pack(pady=20)
-    ttk.Label(root, text="Secure your code effortlessly with Cyborg.", font=("Helvetica", 18)).pack(pady=30)
-    ttk.Label(root, text="Powered By Ali Essam", font=("Helvetica", 18)).pack(pady=30)
+    # Main Content Section
+    content_frame = ttk.Frame(root)
+    content_frame.pack(pady=20)
 
+    # Progress Bar Section
+    progress_label = ttk.Label(content_frame, text="Scan Progress:", font=("Helvetica", 12))
+    progress_label.pack(pady=5)
+    progress_bar = ttk.Progressbar(content_frame, length=800, mode="determinate")
+    progress_bar.pack()
+
+    # Buttons Section
+    button_frame = ttk.Frame(content_frame)
+    button_frame.pack(pady=30)
+
+    ttk.Button(
+        button_frame,
+        text="Scan Single File",
+        command=lambda: start_scan("file", progress_bar, root),
+        bootstyle="success-outline"
+    ).pack(pady=10)
+
+    ttk.Button(
+        button_frame,
+        text="Scan Directory",
+        command=lambda: start_scan("directory", progress_bar, root),
+        bootstyle="info-outline"
+    ).pack(pady=10)
+
+    ttk.Button(
+        button_frame,
+        text="View Help",
+        command=lambda: show_help(),
+        bootstyle="secondary-outline"
+    ).pack(pady=10)
+
+    ttk.Button(
+        button_frame,
+        text="Exit Application",
+        command=root.quit,
+        bootstyle="danger-outline"
+    ).pack(pady=10)
+
+    # Footer Section
+    footer_frame = ttk.Frame(root)
+    footer_frame.pack(side="bottom", pady=20)
+    ttk.Label(
+        footer_frame,
+        text="Powered by Ali Essam | Cyborg Security Tools © 2024",
+        font=("Helvetica", 10),
+        bootstyle="light"
+    ).pack()
+
+    # Help Functionality
+    def show_help():
+        """Display a help message for the user."""
+        help_message = (
+            "Welcome to the Cyborg Vulnerability Scanner!\n\n"
+            "Instructions:\n"
+            "1. Use 'Scan Single File' to analyze a specific file for vulnerabilities.\n"
+            "2. Use 'Scan Directory' to analyze all eligible files in a directory.\n"
+            "3. Monitor the progress of your scan using the progress bar.\n"
+            "4. Review detailed scan results in an automatically generated HTML report.\n\n"
+            "Supported File Types:\n"
+            "- PHP, HTML, Python\n"
+            "\nFor further assistance, contact: support@cyborgtools.com"
+        )
+        messagebox.showinfo("Help - Cyborg Vulnerability Scanner", help_message)
+
+    # Start Main Loop
     root.mainloop()
 
 if __name__ == "__main__":
