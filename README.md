@@ -31,7 +31,8 @@ Cyborg Vulnerability Scanner is a **free, open-source tool** designed to analyze
 ## 📸 Screenshots
 
 ### GUI
-![Screenshot 2024-11-24 140018](https://github.com/user-attachments/assets/ccba3a8e-8516-40be-9db5-f5326e3fdac3)
+![image](https://github.com/user-attachments/assets/b5dbf4a7-323f-4210-85b3-ee78861d02bc)
+
 
 
 ### HTML Report
